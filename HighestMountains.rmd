@@ -1,0 +1,491 @@
+---
+title: "R - Projekt"
+author: 'Iva Bokšić'
+date: "22.1.2021."
+output:
+  pdf_document: 
+    latex_engine: xelatex
+  html_document:
+    df_print: paged
+subtitle: Highest Mountains
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(MASS)
+library(ggplot2)
+library(GGally)
+library(gridExtra)
+library(broom)
+library(corrplot)
+library(caret)
+library(e1071)
+library(ranger)
+library(kernlab)
+```
+
+
+Učitavanje dataframe u varijablu data.
+```{r}
+data <- read.csv("HighestMountains.csv",encoding = 'UTF-8')
+head(data)
+```
+
+Podaci dataframe-a su podijeljeni u  118 redaka i 11 stupaca.
+```{r}
+dim(data)
+```
+
+Nazivi stupaca su :
+```{r}
+names(data)
+```
+Vidimo da se nazivi stupaca razlikuju u odnosu na csv dokument. 
+
+Preimenovanje stupaca da odgovara csv-u.
+```{r}
+names(data)[names(data) == "Failed.attempts.bef..2004"] <- "Failed attempts bef. 2004."
+names(data)[names(data) == "Height..m."] <- "Height (m)"
+names(data)[names(data) == "Height..ft."] <- "Height (ft)"
+names(data)[names(data) == "Prominence..m."] <- "Prominence (m)"
+names(data)[names(data) == "Parent.mountain"] <- "Parent mountain"
+names(data)[names(data) == "First.ascent"] <- "First ascent"
+names(data)[names(data) == "Ascents.bef..2004"] <- "Ascents bef. 2004."
+```
+
+Nova imena stupaca su: 
+```{r}
+names(data)
+```
+
+##Opis dataframa
+
+**Rank** 
+
+
+- Pozicija planinskog vrha s obzirom na visinu.
+
+**Mountain** 
+
+
+- Ime planinskog vrha. 
+- U slučaju više imena međusobno su odvojeni s "/". 
+
+**Height (m)**
+
+
+- Visina planinskog vrha izražena u metrima. 
+
+**Height (ft)** 
+
+
+- Visina planinskog vrha izražena u stopama. 
+
+**Prominence (m)**
+
+
+- Prominencija planine izražena u metrima
+
+**Range** 
+
+
+- Planinski lanac kojem planinski vrh pripada.
+
+**Coordinates**
+
+
+- Koordinate vrha.
+
+**Parent mountain** 
+
+
+- Roditeljska planina
+
+
+**First ascent** 
+
+
+- Godina prvog penjanja na vrha.
+
+
+**Ascents bef. 2004** 
+
+
+- Broj uspješnih penjanja prije 2004. godine.
+
+**Failed attempts bef. 2004:** 
+
+
+- Broj neuspješnih penjanja prije 2004. godine.
+
+
+
+
+Struktura dataframe je:
+```{r}
+str(data)
+```
+
+
+Stupac Ascents.bef..2004 nije Integer i moramo ga pretvoriti da bi mogli raditi analize vezane za broj uspješnih i neuspješnih penjanja.
+```{r}
+data$`Ascents bef. 2004.` <- as.numeric(data$`Ascents bef. 2004.`)
+```
+
+Dataframe sadržđi 4 NA vrijednosti.
+```{r}
+sum(!complete.cases(data))
+```
+
+Prilikom pretvrobe vidimo da su pojednini stupci NA vrijednost, jer nisu sadržavali podatak o uspješnim penjanjima ili je taj podatak bio neprecizan.
+Takve planinske vrhove nećemo koristiti pri analizi vezanoj za broj uspješnih i neuspješnih penjanja.
+```{r}
+na <- data[is.na(data$`Ascents bef. 2004.`),]
+na
+```
+Izbacivanje NA vrijednosti i kreiranje novog dataframe.
+```{r}
+dataAnalize <- data
+dataAnalize <- dataAnalize[!dataAnalize$Rank==1 &
+                          !dataAnalize$Rank==43 & 
+                          !dataAnalize$Rank==50 & 
+                          !dataAnalize$Rank==60,]
+head(dataAnalize)
+str(dataAnalize)
+```
+
+Novi dataframe **dataAnalize** ne sadržava NA vrijednosti.
+```{r}
+sum(!complete.cases(dataAnalize))
+```
+
+Planinski lanci na kojima se nalaze najviše planine su :
+```{r}
+unique(data$Range)
+```
+```{r}
+ggplot(data,aes(x=`First ascent`))+geom_bar(fill = "#677e9c")+theme(axis.text=element_text(size=5),axis.text.x=element_text(angle=45))
+```
+4 planinska vrha do 2004 su ostala neosvojena. Vidimo da su svi iznad 7000 metra i da pripadaju lancima Kula Kangri Himalaya i Lunana Himalaya.
+```{r}
+unclimbed <- data[data$`First ascent`=="unclimbed",]
+unclimbed
+```
+
+Grupiramo li planinske vrhove po planinskim lancima i prebrojimo li njihov broj u pojedinom planinskom lancu dobivamo histogram:
+```{r}
+ggplot(data,aes(x=Range))+geom_bar(fill = "#269991")+coord_flip()
+```
+Iz histograma možemo vidjeti da se 12 najviših planinskih vrhova od 118 u dataframu nalazi u **Mahalangur Himalaya** planinskom lancu.
+Planinski lanci Baltoro Karakoram i Hispar Karakoram imaju 10 vrhova među najvišljim u svijetu.
+
+
+Prvih 14 najviših planinskih vrhova su višlji od 8000 metara. Planinski vrhovi su poredani po visini i vidimo da je Mount Everest najvišlja vrh na svijetu.
+```{r}
+over8000 <- data[data$`Height (m)`>=8000,]
+over8000
+```
+
+Analiza visine planinskih vrhova.
+```{r}
+boxplot(data$`Height (m)`,
+        names = c('Height in meters'),
+        main='Boxplot : height in meters ',
+        col=("#1b4d8f"))
+```
+```{r}
+summary(data$`Height (m)`)
+```
+
+Srednja vrijednost, najveća i najmanja visina planinskih vrhova grupiranih po planinskim lancima.
+
+```{r}
+data %>% group_by(Range) %>% 
+  summarize(mean_height = round(mean(`Height (m)`, na.rm = TRUE),2),
+            max_height= max(`Height (m)`, na.rm = TRUE),
+            min_height= min(`Height (m)`, na.rm = TRUE)) -> heightData
+heightData
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+U dataframe se dodaje postotak neuspješnosti penjanja za pojedini vrh tako da se broj neupješnih penjanja podijeli s brojem uspješnih i neupješnih penjanja.
+```{r}
+dataAnalize$`Failed attempts (%)` <-
+  round(dataAnalize$`Failed attempts bef. 2004.`/
+  (dataAnalize$`Failed attempts bef. 2004.`+dataAnalize$`Ascents bef. 2004.`)*100,2)
+head(dataAnalize)
+```
+
+
+## Test o dvije proporcije 
+### Usporedba planinskih lanaca : "Kangchenjunga Himalaya" i "Garhwal Himalaya" 
+
+
+Analiziraju se planinski lanci "Baltoro Karakoram" i "Hispar Karakoram" koji imaju jednak broj vrhova među najvišljim u svijetu.
+
+H0: neuspjela penjanja su jednako ili više zastupljena u "Kangchenjunga Himalaya" nego "Kangchenjunga Himalaya"  
+H1: neuspjela penjanja su manje zastupljena u "Kangchenjunga Himalaya" nego "Kangchenjunga Himalaya" 
+
+```{r}
+KangchenjungaHimalaya <- dataAnalize[dataAnalize$Range=="Kangchenjunga Himalaya", ]
+KangchenjungaHimalaya
+```
+
+```{r}
+GarhwalHimalaya <- dataAnalize[dataAnalize$Range=="Garhwal Himalaya", ]
+GarhwalHimalaya
+```
+  
+Zbraja se ukupan broj neuspješnih i uspješnih penjanja za Kangchenjunga Himalaya i Garhwal Himalaya.
+```{r}
+sumFailedKangchenjunga <- 
+  sum(dataAnalize[dataAnalize$Range=="Kangchenjunga Himalaya", ]$`Failed attempts bef. 2004.`)
+sumFailedKangchenjunga
+```
+
+```{r}
+sumSuccKangchenjunga <- 
+  sum(dataAnalize[dataAnalize$Range=="Kangchenjunga Himalaya", ]$`Ascents bef. 2004.`)
+sumSuccKangchenjunga
+```
+
+```{r}
+sumFailedGarhwal <- 
+  sum(dataAnalize[dataAnalize$Range=="Garhwal Himalaya", ]$`Failed attempts bef. 2004.`)
+sumFailedGarhwal
+```
+```{r}
+sumSuccGarhwal <- 
+  sum(dataAnalize[dataAnalize$Range=="Garhwal Himalaya", ]$`Ascents bef. 2004.`)
+sumSuccGarhwal
+```
+```{r,echo = FALSE}
+boxplot(dataAnalize[dataAnalize$Range=="Kangchenjunga Himalaya", ]$`Failed attempts (%)`,
+        dataAnalize[dataAnalize$Range=="Garhwal Himalaya", ]$`Failed attempts (%)`, 
+        names = c('Kangchenjunga Himalaya','Garhwal Himalaya'),
+        main='Boxplot of failed attempts in Kangchenjunga Himalaya and Garhwal Himalaya',
+        col=("#c0f0eb"))
+
+```
+
+Testiranje proporcija neuspješnjosti penjanja. 
+```{r}
+failedAttempts <- c(sumFailedKangchenjunga,sumFailedGarhwal)
+attempts <- c(sumFailedKangchenjunga+sumSuccKangchenjunga,sumSuccGarhwal+sumFailedGarhwal)
+
+prop.test(failedAttempts, attempts,
+          alternative = c("less"),
+          conf.level = 0.95)
+```
+
+
+Rezultat :
+P vrijednost provedenog testa iznosi 0.8397 uz 95% interval pouzdanosti.
+
+p-vrijednost > α 
+**H0 se prihvaća**.
+
+Veću zastupljenost neuspjelih penjanja u "Kangchenjunga Himalaya" nego "Garhwal Himalaya" možemo iščitati iz usporedbe proporcija na testu gdje je ta razlika oko 7% veća u korist "Kangchenjunga Himalaya".
+
+
+
+
+
+
+\newpage
+
+
+## Test homogenosti  
+
+```{r}
+sumFailedBaltoro <- 
+  sum(dataAnalize[dataAnalize$Range=="Baltoro Karakoram", ]$`Failed attempts bef. 2004.`)
+sumFailedBaltoro
+```
+
+```{r}
+sumSuccBaltoro <- 
+  sum(dataAnalize[dataAnalize$Range=="Baltoro Karakoram", ]$`Ascents bef. 2004.`)
+sumSuccBaltoro
+```
+
+```{r}
+sumFailedMahalangur <- 
+  sum(dataAnalize[dataAnalize$Range=="Mahalangur Himalaya", ]$`Failed attempts bef. 2004.`)
+sumFailedMahalangur
+```
+```{r}
+sumSuccMahalangur <- 
+  sum(dataAnalize[dataAnalize$Range=="Mahalangur Himalaya", ]$`Ascents bef. 2004.`)
+sumSuccMahalangur
+```
+```{r}
+sumFailedHispar <- 
+  sum(dataAnalize[dataAnalize$Range=="Hispar Karakoram", ]$`Failed attempts bef. 2004.`)
+sumFailedHispar
+```
+```{r}
+sumSuccHispar <- 
+  sum(dataAnalize[dataAnalize$Range=="Hispar Karakoram", ]$`Ascents bef. 2004.`)
+sumSuccHispar
+```
+
+
+Planinski lanci Mahalangur Himalaya,Baltoro Karakoram i Hispar Karakoram koji imaju najveći broj planinskih vrhova među najvišljim u svijetu imaju jednak postotak uspješnih i neuspješnih penjanja.
+  
+
+```{r}
+
+
+attempts <- data.frame(range = 
+            c("Mahalangur Himalaya","Baltoro Karakoram","Hispar Karakoram",""),
+  
+  `successful attempts` = c(sumSuccMahalangur, 
+                                        sumSuccBaltoro, 
+                                        sumSuccHispar,
+                                        sumSuccMahalangur+sumSuccBaltoro+sumSuccHispar), 
+                       
+                       
+`failed attempts` = c(sumFailedMahalangur,
+                    sumFailedBaltoro, 
+                    sumFailedHispar, 
+                    sumFailedMahalangur+sumFailedBaltoro+sumFailedHispar),
+`all attempts` = c(sumFailedMahalangur+sumSuccMahalangur,
+                    sumFailedBaltoro+sumSuccBaltoro, 
+                    sumFailedHispar+sumSuccHispar, 
+                    sumFailedMahalangur+sumFailedBaltoro+sumFailedHispar+
+                    sumSuccMahalangur+sumSuccBaltoro+sumSuccHispar))
+
+attempts
+```
+
+U kontingencijskoj tablici su prikazani broj uspješnih i neuspješnih penjanja za tri planinska lanca s najvećim brojem vrhova koji su u top 118 u svijetu. Provodi se testiranje hipoteze da su populacijske proporcije izmedu svakog retka/stupca kontingencijske tablice jednake.   
+  
+
+To je napravljeno testom homogenosti u kojem su hipoteze:  
+  
+
+H0: postotak penjanja koji su uspješno završeni jednak je za sva tri planinska lanca,  
+H1: postotak penjanja koji su uspješno završeni nije jednak je za sva tri planinska lanca.  
+  
+
+Provodi se  Hi-kvadrat test nad podatcima tablice.  $$\tilde{\chi}^2=\frac{1}{d}\sum_{k=1}^{n} \frac{(O_k - E_k)^2}{E_k}$$ 
+```{r}
+chisq <- chisq.test(attempts[1:3,2:3])
+
+chisq
+
+```
+  
+Zaključak  
+  
+Provedbom testa homogenosti dobije se izuzetno mala p vrijednost, na temelju koje se može zaključiti da postotak uspješnih penjanja za Mahalangur Himalaya, Baltoro Karakoram i Hispar Karakoram nije jednak, te odbacujemo nultu hipotezu. 
+
+
+
+```{r,echo = FALSE}
+proportions <- data.frame( attempts =c("Failed attempts","Failed attempts","Failed attempts"),
+  percent=c(sumFailedMahalangur/(sumFailedMahalangur+sumSuccMahalangur),
+            sumFailedBaltoro/(sumFailedBaltoro+sumSuccBaltoro),
+            sumFailedHispar/(sumFailedHispar+sumSuccHispar)),
+  range = c("Mahalangur Himalaya","Baltoro Karakoram","Hispar Karakoram")
+)
+proportions
+```
+
+```{r,echo = FALSE}
+boxplot(dataAnalize[dataAnalize$Range=="Mahalangur Himalaya", ]$`Failed attempts (%)`,
+        dataAnalize[dataAnalize$Range=="Baltoro Karakoram", ]$`Failed attempts (%)`,
+        dataAnalize[dataAnalize$Range=="Hispar Karakoram", ]$`Failed attempts (%)`, 
+        names = c('Mahalangur Himalaya','Baltoro Karakoram','Hispar Karakoram'),
+        main='Boxplot of failed attempts',
+        col=("#c0d5f0"))
+
+```
+
+
+```{r}
+
+ggplot(proportions) +
+  geom_col(
+    aes(x = attempts, y = percent, fill = range),
+    position = 'dodge') +
+   scale_fill_manual("legend", values = c("Mahalangur Himalaya" = "#264e82", 
+                                          "Baltoro Karakoram" = "#88acdb",
+                                          "Hispar Karakoram"="#0a6ef0"))
+
+```
+
+Boxplot i stupčasti dijagram potvrđuju provedbu testa. Uočava se da najveći postotak neuspješnih penjanja ima Hispar Karakoram.
+
+
+
+### Linearna regresija
+
+Graf prikazuj međusobnu zavisnost varijabli. Veći i tamniji krugovi predstavljaju veću zavinost,a manji i svijetliji manju.
+```{r}
+
+numeric_col <- sapply(dataAnalize, is.numeric)
+df_numeric <- dataAnalize[, numeric_col]
+Correlation <- cor(df_numeric, use="pairwise.complete.obs")
+corrplot(Correlation)
+
+```
+Provodi se linearna regresija s obzirom na prikaz grafa tako da se odabiru nezavisni regresori.
+
+```{r,echo = FALSE}
+ fit.height = lm(`Ascents bef. 2004.`~`Height (m)`,data = dataAnalize)
+summary( fit.height)
+```
+`
+
+```{r,echo = FALSE}
+ fit.heightProminence = lm(`Ascents bef. 2004.`~`Height (m)`+`Prominence (m)`,data = dataAnalize)
+summary( fit.heightProminence)
+```
+
+```{r,echo = FALSE}
+ fit.AscentsProminence = lm(`Height (m)`~`Ascents bef. 2004.`+`Prominence (m)`,data = dataAnalize)
+summary( fit.AscentsProminence)
+```
+```{r}
+hist(fit.AscentsProminence$residuals, col="#009999")
+```
+
+```{r,echo = FALSE}
+fit.AscentsProminenceFailed = lm(`Height (m)`~`Ascents bef. 2004.`+`Prominence (m)`+`Failed attempts (%)`,data = dataAnalize)
+summary( fit.AscentsProminenceFailed)
+```
+### Normalnost reziduala
+```{r}
+hist(fit.AscentsProminenceFailed$residuals, col="#009999")
+```
+
+```{r}
+qqnorm(rstandard(fit.AscentsProminenceFailed))
+qqline(rstandard(fit.AscentsProminenceFailed)) 
+```
+```{r,echo = FALSE}
+fit.AscentsProminenceHeight= lm(`Failed attempts (%)`~`Prominence (m)`+`Height (m)`,data = dataAnalize)
+summary( fit.AscentsProminenceHeight)
+```
+
+Od svih provedneih modela  najveći korelacijski koeficijent je dobiven u modelu gdje su broj uspješnih i neuspješnih penjanja i prominencija regresori za nadmorsku visinu planinskog vrha. Histogramom i qqplotom ispitana je normalnsot reziduala tog modela i zaključuje se da je on valjani model.
+
